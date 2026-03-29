@@ -7,6 +7,7 @@
 
 #include <linux/module.h>
 #include <linux/spi/spi.h>
+#include <linux/version.h>
 
 #include "drm_iface.h"
 #include "params_iface.h"
@@ -44,6 +45,15 @@ static void sharp_memory_remove(struct spi_device *spi)
 	drm_remove(spi);
 }
 
+/* Kernel 5.10 expects spi_driver.remove to return int; 6.x changed it to void */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0)
+static int sharp_memory_remove_compat(struct spi_device *spi)
+{
+	sharp_memory_remove(spi);
+	return 0;
+}
+#endif
+
 static void sharp_memory_shutdown(struct spi_device *spi)
 {
 	sharp_memory_remove(spi);
@@ -54,7 +64,11 @@ static struct spi_driver sharp_memory_spi_driver = {
 		.name = "sharp-drm",
 	},
 	.probe = sharp_memory_probe,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0)
+	.remove = sharp_memory_remove_compat,
+#else
 	.remove = sharp_memory_remove,
+#endif
 	.shutdown = sharp_memory_shutdown,
 };
 module_spi_driver(sharp_memory_spi_driver);

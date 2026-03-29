@@ -1,0 +1,9 @@
+config TINYDRM_SHARPMEM
+	tristate "DRM support for SHARP Memory Display panels"
+	depends on DRM && SPI
+	select DRM_KMS_HELPER
+	select DRM_KMS_CMA_HELPER
+	help
+	  DRM driver for SHARP Memory Display panels such as the LS027B7DH01.
+	  
+	  If M is selected the module will be called sharp-drm.

@@ -1,6 +1,7 @@
 #ifndef DRM_IFACE_H_
 #define DRM_IFACE_H_
 
+#include <linux/version.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
@@ -12,12 +13,23 @@
 #include <drm/drm_connector.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 #include <drm/drm_fb_dma_helper.h>
+#include <drm/drm_gem_dma_helper.h>
+#else
+#include <drm/drm_fb_cma_helper.h>
+#include <drm/drm_gem_cma_helper.h>
+#endif
+
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_format_helper.h>
 #include <drm/drm_framebuffer.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
 #include <drm/drm_gem_atomic_helper.h>
-#include <drm/drm_gem_dma_helper.h>
+#endif
+
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_modes.h>

@@ -14,17 +14,34 @@
 #include <linux/spi/spi.h>
 #include <linux/mutex.h>
 #include <linux/list.h>
+#include <linux/dma-mapping.h>
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
+
+/* Kernel 6.1 renamed CMA helpers to DMA helpers */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 #include <drm/drm_fb_dma_helper.h>
+#include <drm/drm_gem_dma_helper.h>
+#else
+#include <drm/drm_fb_cma_helper.h>
+#include <drm/drm_gem_cma_helper.h>
+#define drm_fb_dma_get_gem_obj drm_fb_cma_get_gem_obj
+#define DEFINE_DRM_GEM_DMA_FOPS DEFINE_DRM_GEM_CMA_FOPS
+#define DRM_GEM_DMA_DRIVER_OPS_VMAP DRM_GEM_CMA_DRIVER_OPS_VMAP
+#endif
+
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_format_helper.h>
 #include <drm/drm_framebuffer.h>
+
+/* drm_gem_atomic_helper.h was added in kernel 5.18 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
 #include <drm/drm_gem_atomic_helper.h>
-#include <drm/drm_gem_dma_helper.h>
+#endif
+
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_modes.h>
@@ -259,6 +276,8 @@ static int sharp_memory_clip_mono_tagged(struct sharp_memory_panel* panel, size_
 	u8* buf, struct drm_framebuffer *fb, struct drm_rect const* clip)
 {
 	int rc;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
 	struct drm_gem_dma_object *dma_obj;
 	struct iosys_map dst, vmap;
 
@@ -279,6 +298,19 @@ static int sharp_memory_clip_mono_tagged(struct sharp_memory_panel* panel, size_
 
 	// End DMA area
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
+#else
+	struct drm_gem_cma_object *cma_obj;
+
+	// Get CMA GEM object
+	cma_obj = drm_fb_cma_get_gem_obj(fb, 0);
+	if (!cma_obj || !cma_obj->vaddr) {
+		return -EINVAL;
+	}
+
+	// Convert XRGB8888 to gray8
+	drm_fb_xrgb8888_to_gray8(buf, cma_obj->vaddr, fb, (struct drm_rect *)clip);
+	rc = 0;
+#endif
 
 	// Add overlays
 	if (g_param_overlays) {
@@ -436,8 +468,26 @@ static const struct drm_simple_display_pipe_funcs sharp_memory_pipe_funcs = {
 static int sharp_memory_connector_get_modes(struct drm_connector *connector)
 {
 	struct sharp_memory_panel *panel = drm_to_panel(connector->dev);
+	struct drm_display_mode *mode;
 
-	return drm_connector_helper_get_modes_fixed(connector, panel->mode);
+	mode = drm_mode_duplicate(connector->dev, panel->mode);
+	if (!mode) {
+		DRM_ERROR("Failed to duplicate mode\n");
+		return 0;
+	}
+
+	if (mode->name[0] == '\0')
+		drm_mode_set_name(mode);
+
+	mode->type |= DRM_MODE_TYPE_PREFERRED;
+	drm_mode_probed_add(connector, mode);
+
+	if (mode->width_mm)
+		connector->display_info.width_mm = mode->width_mm;
+	if (mode->height_mm)
+		connector->display_info.height_mm = mode->height_mm;
+
+	return 1;
 }
 
 static struct drm_framebuffer* create_and_store_fb(struct drm_device *dev,
@@ -488,7 +538,7 @@ static const struct drm_ioctl_desc sharp_memory_ioctls[] = {
 	DRM_IOCTL_DEF_DRV_OV_CLEAR
 };
 
-static const struct drm_driver sharp_memory_driver = {
+static struct drm_driver sharp_memory_driver = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops = &sharp_memory_fops,
 	DRM_GEM_DMA_DRIVER_OPS_VMAP,
